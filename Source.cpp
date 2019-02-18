@@ -1,73 +1,140 @@
+#include <cassert>
 #include <conio.h>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <vector>
 #include <string>
 
-using namespace std;
 
-string MarkerName(int num)
+struct Vec3
 {
-	string str;
-	str = "marker.";
-	str.append(to_string(num));
-	return str;
+	Vec3 operator+( const Vec3& _other )const
+	{
+		return { x + _other.x, y + _other.y, z + _other.z };
+	}
+	Vec3 operator*( const double _scalar )const
+	{
+		return{ x * _scalar, y * _scalar, z * _scalar };
+	}
+	double x = 0., y = 0., z = 0.;
+};
+
+std::ostream& operator<<( std::ostream& stream, const Vec3& v )
+{
+	stream << v.x << " " << v.y << " " << v.z << '\n';
+}
+std::istream& operator>>( std::istream& stream, Vec3& v )
+{
+	stream >> v.x >> v.y >> v.z;
+}
+std::string MakeHeader()
+{
+	return {
+		"TITLE=\"3D TRIANGULAR SURFACE DATA\"\n"
+		"VARIABLES= \"X\", \"Y\", \"Z\"\n"
+		"ZONE T=\"UNSTRUC\" N= 606 E= 804 F=FEPOINT ET=TRIANGLE\n"
+	};
+}
+std::vector<std::string> ExtractLines( std::string filename, int header_size, int line_count = -1 )
+{
+	std::ifstream file( filename );
+	assert( file.is_open() );
+	file.seekg( header_size );
+
+	std::vector<std::string> lines;
+	std::string line;
+
+	if(line_count == -1)
+	{
+		while( std::getline( file, line ) )
+		{
+			if( !line.empty() )
+				lines.push_back( std::move( line ) );
+		}
+		lines.shrink_to_fit();
+	}
+	else
+	{
+		lines.reserve( line_count );
+		int count = 0;
+		while( std::getline( file, line ) && count < line_count )
+		{
+			if( !line.empty() )
+				lines.push_back( std::move( line ) );
+
+			count++;
+		}
+	}
+
+	file.close();
+
+	return lines;
+}
+std::string MarkerName( int num )
+{
+	return ( "marker." + std::to_string( num ) );
 }
 
-void MarkerOne(int& it)
+void MarkerOne( int& it )
 {
-	int num;
-	double x, y, z;
-	ofstream mark(MarkerName(it));
-	ifstream struc("unstruc_surface_in.dat");
-	mark << "TITLE=\"3D TRIANGULAR SURFACE DATA\"" << std::endl;
-	mark << "VARIABLES= \"X\", \"Y\", \"Z\"" << std::endl;
-	mark << "ZONE T=\"UNSTRUC\" N= 606 " << "E= 804 " << "F=FEPOINT " << "ET=TRIANGLE" << std::endl;
+	const auto lines = ExtractLines( "unstruc_surface_in.dat", 10 );
 
-	struc.seekg(10);
-	while (struc >> num >> x >> y >> z)
+	std::ofstream mark( MarkerName( it ) );
+	mark << MakeHeader();
+
+	for( const auto& line : lines )
 	{
-		mark << x << " " << y << " " << z << endl;
+		int num = 0;
+		Vec3 v;
+		std::stringstream ss;
+		ss << line;
+		ss >> num >> v;
+
+		mark << v;
 	}
 	mark.close();
-	struc.close();
 	it++;
 }
 
-void MarkerNext(int& it)
+void MarkerNext( int& it )
 {
-	int num;
-	double x, y, z, dx, dy, dz;
-	double dt = 1.0f / 200.0f;
-	ofstream mark(MarkerName(it));
-	ifstream prevMark(MarkerName(it - 1));
-	ifstream fort("fort.41");
+	std::ofstream mark( MarkerName( it ) );
+	mark << MakeHeader();
 
-
-	mark << "TITLE=\"3D TRIANGULAR SURFACE DATA\"" << endl;
-	mark << "VARIABLES= \"X\", \"Y\", \"Z\"" << endl;
-	mark << "ZONE T=\"UNSTRUC\" N= 606 " << "E= 804 " << "F=FEPOINT " << "ET=TRIANGLE" << endl;
-	prevMark.seekg(112);
-	fort.seekg(16);
-	while (prevMark >> num >> x >> y >> z &&
-		       fort >> num >> dx >> dy >> dz)
+	const auto prevMarkLines = ExtractLines( MarkerName( it - 1 ), 114, 580 );
+	const auto fortLines = ExtractLines( "fort.41", 16, 580 );
+	
+	const double dt = 1.0f / 200.0f;
+	for( int i = 0; i < prevMarkLines.size(); ++i )
 	{
-		mark << x + dx * dt << " " << y + dy * dt << " " << z + dx * dt << endl;
-		if (num == 580) break;
+		std::stringstream prev_ss;
+		prev_ss << prevMarkLines[ i ];
+
+		Vec3 pos;
+		prev_ss >> pos;
+		
+		std::stringstream fort_ss;
+		fort_ss << fortLines[ i ];
+
+		Vec3 vel;
+		fort_ss >> vel;
+		
+		mark << ( pos + ( vel * dt ) );
 	}
+
 	mark.close();
-	prevMark.close();
-	fort.close();
+
 	it++;
 }
 
 int main()
 {
 	int iteration = 1;
-	cout << "Working ..." << endl;
-	MarkerOne(iteration);
-	MarkerNext(iteration);
-	cout << "Done!" << endl;
-	while (!_kbhit());
+	std::cout << "Working ..." << '\n';
+	MarkerOne( iteration );
+	MarkerNext( iteration );
+	std::cout << "Done!" << '\n';
+	while( !_kbhit() );
 	return 0;
 }
